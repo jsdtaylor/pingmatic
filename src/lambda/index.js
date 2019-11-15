@@ -38,10 +38,6 @@ exports.handler = async (event) => {
     statusCode = res.statusCode;
   } catch (err) {
     console.log('error pinging target');
-    return {
-      statusCode: 500,
-      body: JSON.stringify('error pinging target'),
-    };
   }
    
   // Build DB request params
