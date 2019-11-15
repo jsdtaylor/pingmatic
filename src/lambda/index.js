@@ -4,6 +4,8 @@ var AWS = require('aws-sdk');
 AWS.config.update({region: process.env.AWS_REGION});
 // Require crypto for uuid generation
 const crypto = require('crypto');
+// Require https for pinging the target
+const https = require('https');
 // Create the DynamoDB service object
 const dynamo = new AWS.DynamoDB({apiVersion: '2012-08-10'});
 
@@ -13,31 +15,60 @@ const uuid = () => {
     hex.substring(12,16) + "-" + hex.substring(16,20) + "-" + hex.substring(20);
 }
 
+const ping = async () => {
+  return new Promise ((resolve, reject) => {
+    let req = https.get(process.env.TARGET_URL, (res) => {
+      resolve(res);
+    });
+    req.on('error', err => {
+      reject(err);
+    });
+  }); 
+}
+
 exports.handler = async (event) => {
+  // Initialise outputs
+  let successful = false;
+  let statusCode = 0;
+  
+  // Ping
+  try {
+    const res = await ping();
+    successful = true;
+    statusCode = res.statusCode;
+  } catch (err) {
+    console.log('error pinging target');
+    return {
+      statusCode: 500,
+      body: JSON.stringify('error pinging target'),
+    };
+  }
+   
   // Build DB request params
   const params = {
-    TableName: 'PingsterEvents',
+    TableName: 'PingmaticEvents',
     Item: {
       'eventId' : {S: uuid()},
       'type' : {S: 'ping'},
       'target' : {S: process.env.TARGET_URL},
-      'successful' : {B: successful},
-      'statusCode' : {S: statusCode},
+      'successful' : {BOOL: successful},
+      'statusCode' : {N: statusCode.toString()},
       'createdAt' : {S: (new Date().toISOString())}
     }
   };
 
   // Call DynamoDB to add the item to the table
-  dynamo.putItem(params, function(err, data) {
-    if (err) {
-      console.log("Error", err);
-    } else {
-      console.log("Success", data);
-    }
-  });
-  const response = {
+  try {
+    await dynamo.putItem(params).promise();
+  } catch (err) {
+    console.log('error saving results');
+    return {
+      statusCode: 500,
+      body: JSON.stringify('error saving results'),
+    };
+  }
+  return {
     statusCode: 200,
     body: JSON.stringify('OK'),
   };
-  return response;
 };
